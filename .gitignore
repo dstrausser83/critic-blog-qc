@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+# A real secret must never be committed; the runner reads it from env or
+# ~/.config/critic-qc/qc-secret.txt (outside any repo).
+qc-secret.txt
+*.local

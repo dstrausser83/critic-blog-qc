@@ -1,0 +1,66 @@
+# critic-qc — reusable workflow (the adoption example for this repo).
+#
+# A blog-drafts repo calls this workflow on its PRs and gets a pass/fail
+# check from the critic-qc judge. See README.md "Adopt it" for the caller.
+#
+# The caller must provide the QC_SECRET repository secret:
+#   jobs:
+#     critic:
+#       uses: dstrausser83/critic-blog-qc/.github/workflows/critic-qc.yml@v1
+#       secrets:
+#         QC_SECRET: ${{ secrets.QC_SECRET }}
+#
+name: critic-qc
+
+on:
+  workflow_call:
+    inputs:
+      files:
+        description: "Files or globs to judge (space/newline separated)."
+        type: string
+        required: true
+      kind:
+        description: "Judge kind: qc | spam | trend"
+        type: string
+        required: false
+        default: "qc"
+    secrets:
+      QC_SECRET:
+        description: "Shared secret for the critic-qc judge Worker."
+        required: true
+
+  # --- Example: use this repo's action directly on pull requests instead ---
+  # (Kept commented in this repo; copy into a drafts repo and uncomment.)
+  #
+  # pull_request:
+  #   paths: ["drafts/**", "posts/**"]
+
+jobs:
+  judge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # The caller repo's checkout — the reusable workflow runs in the
+        # caller's context, so the files input resolves against their tree.
+      - name: Critic QC
+        uses: dstrausser83/critic-blog-qc@v1
+        with:
+          files: ${{ inputs.files }}
+          kind: ${{ inputs.kind }}
+          qc-secret: ${{ secrets.QC_SECRET }}
+
+  # --- PR-trigger variant (alternative to workflow_call) ---
+  # Drop the `on: workflow_call` block, uncomment the pull_request trigger
+  # above, and replace the step's `files` with the PR's changed drafts, e.g.:
+  #
+  #     - name: Changed drafts
+  #       id: changed
+  #       run: |
+  #         files=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD -- 'drafts/*.md' 'drafts/*.json')
+  #         echo "files=$files" >> "$GITHUB_OUTPUT"
+  #     - name: Critic QC
+  #       if: steps.changed.outputs.files != ''
+  #       uses: dstrausser83/critic-blog-qc@v1
+  #       with:
+  #         files: ${{ steps.changed.outputs.files }}
+  #         qc-secret: ${{ secrets.QC_SECRET }}

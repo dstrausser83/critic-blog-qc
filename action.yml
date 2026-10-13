@@ -1,0 +1,62 @@
+name: "Critic QC — blog draft judge"
+description: >-
+  Gate files on the critic-qc judge Worker (PASS/FAIL). Sends each file's text
+  to the judge and fails the check on any FAIL verdict, with the judge's
+  notes in the log. Judge transport/auth errors fail distinctly — never a
+  silent pass.
+author: "Dead Brands (Rock Wells)"
+inputs:
+  files:
+    description: "Files or glob patterns to judge, space- or newline-separated."
+    required: true
+  kind:
+    description: "Judge kind: qc | spam | trend. Selects the rubric on its own — see the note in the run step before adding any other field."
+    required: false
+    default: "qc"
+  qc-secret:
+    description: "Value of the QC_SECRET secret. Pass as ${{ secrets.QC_SECRET }}. Alternatively set the QC_SECRET env var on the step/job; the input wins when both are set."
+    required: false
+    default: ""
+  judge-url:
+    description: "Judge endpoint (override only for staging)."
+    required: false
+    default: "https://critic-qc.dstrausser83.workers.dev/judge"
+outputs:
+  result:
+    description: "pass | fail | error — mirrors the exit-code semantics (0/1/2)."
+    value: ${{ steps.judge.outputs.result }}
+runs:
+  using: "composite"
+  steps:
+    - name: Judge files with critic-qc
+      id: judge
+      shell: bash
+      env:
+        # The secret reaches the runner via env only — never a command-line
+        # argument, so it cannot leak into logs or process listings.
+        QC_SECRET_INPUT: ${{ inputs.qc-secret }}
+        JUDGE_KIND: ${{ inputs.kind }}
+        JUDGE_URL: ${{ inputs.judge-url }}
+        JUDGE_FILES: ${{ inputs.files }}
+      run: |
+        # IMPORTANT — kind ONLY: the judge body is {"text": ..., "kind": ...}.
+        # Do NOT add a "rubric" field. The Worker resolves its system prompt
+        # as `rubric || RUBRICS[kind]`, so a stray rubric field silently
+        # diverts it into article-SUMMARY output instead of a verdict.
+        # scripts/judge_files.py owns the request shape; keep it that way.
+        set +e
+        # shellcheck disable=SC2086 -- JUDGE_FILES is an intentional word list
+        python3 "${{ github.action_path }}/scripts/judge_files.py" \
+          --kind "$JUDGE_KIND" --judge-url "$JUDGE_URL" $JUDGE_FILES
+        rc=$?
+        case "$rc" in
+          0) echo "result=pass" >> "$GITHUB_OUTPUT" ;;
+          1) echo "result=fail" >> "$GITHUB_OUTPUT" ;;
+          *) echo "result=error" >> "$GITHUB_OUTPUT"
+             echo "::error::critic-qc judge unreachable or unauthorized (exit $rc) — this is NOT a content verdict. Check the QC_SECRET secret and the judge Worker."
+             exit 2 ;;
+        esac
+        exit "$rc"
+branding:
+  icon: "shield"
+  color: "purple"
